@@ -13,15 +13,20 @@ const wireMaterials = [
   { value: "nichrome-80", label: "Nichrome 80", resistivity: 1.09e-6 },
   { value: "ss316l", label: "SS316L", resistivity: 7.4e-7 },
 ] as const;
-const awgOptions = [
-  { value: 20, diameterMm: 0.812 },
-  { value: 22, diameterMm: 0.644 },
-  { value: 24, diameterMm: 0.511 },
-  { value: 26, diameterMm: 0.405 },
-  { value: 28, diameterMm: 0.321 },
-  { value: 30, diameterMm: 0.255 },
-  { value: 32, diameterMm: 0.202 },
+const coilBuildTypes = [
+  { value: "round", label: "Round" },
+  { value: "parallel", label: "Parallel" },
+  { value: "twisted", label: "Twisted" },
 ] as const;
+const awgOptions = Array.from({ length: 13 }, (_, index) => {
+  const value = 20 + index;
+  const diameterMm = 0.127 * 92 ** ((36 - value) / 39);
+
+  return {
+    value,
+    diameterMm,
+  };
+});
 const themeOptions = [
   { value: "system", label: "システム", icon: Monitor },
   { value: "light", label: "ライト", icon: Sun },
@@ -30,6 +35,7 @@ const themeOptions = [
 
 type ThemeMode = (typeof themeOptions)[number]["value"];
 type WireMaterial = (typeof wireMaterials)[number]["value"];
+type CoilBuildType = (typeof coilBuildTypes)[number]["value"];
 
 type TableCell = {
   amps: number;
@@ -54,14 +60,20 @@ function formatNumber(value: number, fractionDigits = 1) {
 
 function calculateCoilResistance({
   material,
+  buildType,
   awg,
+  strandCount,
+  twistLengthFactor,
   innerDiameterMm,
   wraps,
   legLengthMm,
   coilCount,
 }: {
   material: WireMaterial;
+  buildType: CoilBuildType;
   awg: number;
+  strandCount: number;
+  twistLengthFactor: number;
   innerDiameterMm: number;
   wraps: number;
   legLengthMm: number;
@@ -69,23 +81,30 @@ function calculateCoilResistance({
 }) {
   const selectedMaterial = wireMaterials.find((option) => option.value === material)!;
   const selectedAwg = awgOptions.find((option) => option.value === awg)!;
+  const effectiveStrandCount = buildType === "round" ? 1 : strandCount;
+  const lengthFactor = buildType === "twisted" ? twistLengthFactor : 1;
   const wireDiameterM = selectedAwg.diameterMm / 1000;
   const crossSectionArea = Math.PI * (wireDiameterM / 2) ** 2;
   const wrapLengthMm = Math.PI * (innerDiameterMm + selectedAwg.diameterMm) * wraps;
-  const totalLengthM = (wrapLengthMm + legLengthMm * 2) / 1000;
-  const singleCoilResistance = (selectedMaterial.resistivity * totalLengthM) / crossSectionArea;
+  const totalLengthMm = (wrapLengthMm + legLengthMm * 2) * lengthFactor;
+  const totalLengthM = totalLengthMm / 1000;
+  const singleStrandResistance = (selectedMaterial.resistivity * totalLengthM) / crossSectionArea;
+  const singleCoilResistance = singleStrandResistance / effectiveStrandCount;
 
   return {
     singleCoilResistance,
     buildResistance: singleCoilResistance / coilCount,
-    totalLengthMm: totalLengthM * 1000,
+    totalLengthMm,
   };
 }
 
 export default function App() {
   const [cdr, setCdr] = useState(25);
   const [coilMaterial, setCoilMaterial] = useState<WireMaterial>("kanthal-a1");
+  const [coilBuildType, setCoilBuildType] = useState<CoilBuildType>("round");
   const [coilAwg, setCoilAwg] = useState(26);
+  const [strandCount, setStrandCount] = useState(2);
+  const [twistLengthFactor, setTwistLengthFactor] = useState(1.1);
   const [innerDiameterMm, setInnerDiameterMm] = useState(3);
   const [wraps, setWraps] = useState(6);
   const [legLengthMm, setLegLengthMm] = useState(5);
@@ -109,13 +128,26 @@ export default function App() {
     () =>
       calculateCoilResistance({
         material: coilMaterial,
+        buildType: coilBuildType,
         awg: coilAwg,
+        strandCount,
+        twistLengthFactor,
         innerDiameterMm,
         wraps,
         legLengthMm,
         coilCount,
       }),
-    [coilMaterial, coilAwg, innerDiameterMm, wraps, legLengthMm, coilCount],
+    [
+      coilMaterial,
+      coilBuildType,
+      coilAwg,
+      strandCount,
+      twistLengthFactor,
+      innerDiameterMm,
+      wraps,
+      legLengthMm,
+      coilCount,
+    ],
   );
 
   useEffect(() => {
@@ -201,11 +233,26 @@ export default function App() {
               コイル抵抗値計算
             </h2>
             <p className="text-sm leading-6 text-slate-600 dark:text-slate-400">
-              単線ラウンドワイヤーの概算です。実測値はポスト固定、足の長さ、線材差、熱処理で変わります。
+              Round、Parallel、Twisted の概算です。実測値はポスト固定、足の長さ、線材差、熱処理で変わります。
             </p>
           </div>
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+              ビルド
+              <select
+                value={coilBuildType}
+                onChange={(event) => setCoilBuildType(event.target.value as CoilBuildType)}
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-cyan-400 dark:focus:ring-cyan-950"
+              >
+                {coilBuildTypes.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
               線材
               <select
@@ -230,11 +277,41 @@ export default function App() {
               >
                 {awgOptions.map((option) => (
                   <option key={option.value} value={option.value}>
-                    {option.value} AWG ({option.diameterMm}mm)
+                    {option.value} AWG ({option.diameterMm.toFixed(3)}mm)
                   </option>
                 ))}
               </select>
             </label>
+
+            {coilBuildType !== "round" && (
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                ワイヤー本数
+                <input
+                  type="number"
+                  min="2"
+                  max="8"
+                  step="1"
+                  value={strandCount}
+                  onChange={(event) => setStrandCount(Number(event.target.value))}
+                  className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-cyan-400 dark:focus:ring-cyan-950"
+                />
+              </label>
+            )}
+
+            {coilBuildType === "twisted" && (
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                ツイスト補正
+                <input
+                  type="number"
+                  min="1"
+                  max="1.5"
+                  step="0.01"
+                  value={twistLengthFactor}
+                  onChange={(event) => setTwistLengthFactor(Number(event.target.value))}
+                  className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-cyan-400 dark:focus:ring-cyan-950"
+                />
+              </label>
+            )}
 
             <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
               内径 mm
@@ -306,9 +383,18 @@ export default function App() {
             <div>
               <dt className="text-slate-600 dark:text-slate-400">ワイヤー長</dt>
               <dd className="font-semibold text-slate-900 dark:text-slate-100">
-                約 {coilResult.totalLengthMm.toFixed(1)}mm / coil
+                約 {coilResult.totalLengthMm.toFixed(1)}mm / 本
               </dd>
             </div>
+            {coilBuildType !== "round" && (
+              <div>
+                <dt className="text-slate-600 dark:text-slate-400">ワイヤー構成</dt>
+                <dd className="font-semibold text-slate-900 dark:text-slate-100">
+                  {strandCount}本
+                  {coilBuildType === "twisted" ? ` / 補正 ${twistLengthFactor.toFixed(2)}x` : ""}
+                </dd>
+              </div>
+            )}
           </dl>
         </aside>
       </section>
