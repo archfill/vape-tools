@@ -1,0 +1,17 @@
+{
+  "name": "Vape Tools",
+  "short_name": "VapeTools",
+  "description": "Mechanical mod resistance, voltage, current, and wattage table.",
+  "start_url": "/vape-tools/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/vape-tools/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
