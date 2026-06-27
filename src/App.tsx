@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { Monitor, Moon, Sun } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 const resistanceValues = [
   0.08, 0.09, 0.1, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.18, 0.2, 0.22, 0.25,
@@ -7,6 +8,28 @@ const resistanceValues = [
 
 const voltageValues = [4.2, 3.9, 3.7, 3.5, 3.2];
 const cdrOptions = [15, 20, 25, 30, 35, 40];
+const wireMaterials = [
+  { value: "kanthal-a1", label: "Kanthal A1", resistivity: 1.45e-6 },
+  { value: "nichrome-80", label: "Nichrome 80", resistivity: 1.09e-6 },
+  { value: "ss316l", label: "SS316L", resistivity: 7.4e-7 },
+] as const;
+const awgOptions = [
+  { value: 20, diameterMm: 0.812 },
+  { value: 22, diameterMm: 0.644 },
+  { value: 24, diameterMm: 0.511 },
+  { value: 26, diameterMm: 0.405 },
+  { value: 28, diameterMm: 0.321 },
+  { value: 30, diameterMm: 0.255 },
+  { value: 32, diameterMm: 0.202 },
+] as const;
+const themeOptions = [
+  { value: "system", label: "システム", icon: Monitor },
+  { value: "light", label: "ライト", icon: Sun },
+  { value: "dark", label: "ダーク", icon: Moon },
+] as const;
+
+type ThemeMode = (typeof themeOptions)[number]["value"];
+type WireMaterial = (typeof wireMaterials)[number]["value"];
 
 type TableCell = {
   amps: number;
@@ -29,8 +52,50 @@ function formatNumber(value: number, fractionDigits = 1) {
   return value.toFixed(fractionDigits);
 }
 
+function calculateCoilResistance({
+  material,
+  awg,
+  innerDiameterMm,
+  wraps,
+  legLengthMm,
+  coilCount,
+}: {
+  material: WireMaterial;
+  awg: number;
+  innerDiameterMm: number;
+  wraps: number;
+  legLengthMm: number;
+  coilCount: number;
+}) {
+  const selectedMaterial = wireMaterials.find((option) => option.value === material)!;
+  const selectedAwg = awgOptions.find((option) => option.value === awg)!;
+  const wireDiameterM = selectedAwg.diameterMm / 1000;
+  const crossSectionArea = Math.PI * (wireDiameterM / 2) ** 2;
+  const wrapLengthMm = Math.PI * (innerDiameterMm + selectedAwg.diameterMm) * wraps;
+  const totalLengthM = (wrapLengthMm + legLengthMm * 2) / 1000;
+  const singleCoilResistance = (selectedMaterial.resistivity * totalLengthM) / crossSectionArea;
+
+  return {
+    singleCoilResistance,
+    buildResistance: singleCoilResistance / coilCount,
+    totalLengthMm: totalLengthM * 1000,
+  };
+}
+
 export default function App() {
   const [cdr, setCdr] = useState(25);
+  const [coilMaterial, setCoilMaterial] = useState<WireMaterial>("kanthal-a1");
+  const [coilAwg, setCoilAwg] = useState(26);
+  const [innerDiameterMm, setInnerDiameterMm] = useState(3);
+  const [wraps, setWraps] = useState(6);
+  const [legLengthMm, setLegLengthMm] = useState(5);
+  const [coilCount, setCoilCount] = useState(1);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    const storedMode = window.localStorage.getItem("vape-tools-theme");
+    return themeOptions.some((option) => option.value === storedMode)
+      ? (storedMode as ThemeMode)
+      : "system";
+  });
 
   const table = useMemo(
     () =>
@@ -40,47 +105,227 @@ export default function App() {
       })),
     [cdr],
   );
+  const coilResult = useMemo(
+    () =>
+      calculateCoilResistance({
+        material: coilMaterial,
+        awg: coilAwg,
+        innerDiameterMm,
+        wraps,
+        legLengthMm,
+        coilCount,
+      }),
+    [coilMaterial, coilAwg, innerDiameterMm, wraps, legLengthMm, coilCount],
+  );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+    const applyTheme = () => {
+      const shouldUseDark = themeMode === "dark" || (themeMode === "system" && mediaQuery.matches);
+      document.documentElement.classList.toggle("dark", shouldUseDark);
+      document.documentElement.style.colorScheme = shouldUseDark ? "dark" : "light";
+    };
+
+    window.localStorage.setItem("vape-tools-theme", themeMode);
+    applyTheme();
+    mediaQuery.addEventListener("change", applyTheme);
+
+    return () => mediaQuery.removeEventListener("change", applyTheme);
+  }, [themeMode]);
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-950">
-      <section className="border-b border-slate-200 bg-white">
+    <main className="min-h-screen bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+      <section className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-sm font-semibold text-cyan-700">Mechanical Mod Table</p>
-              <h1 className="mt-1 text-3xl font-bold tracking-normal text-slate-950">
+              <p className="text-sm font-semibold text-cyan-700 dark:text-cyan-300">
+                Mechanical Mod Table
+              </p>
+              <h1 className="mt-1 text-3xl font-bold tracking-normal text-slate-950 dark:text-white">
                 Vape Tools
               </h1>
             </div>
-            <label className="flex w-full max-w-xs flex-col gap-2 text-sm font-medium text-slate-700">
-              Battery CDR
-              <select
-                value={cdr}
-                onChange={(event) => setCdr(Number(event.target.value))}
-                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
-              >
-                {cdrOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}A
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="flex w-full flex-col gap-3 md:w-auto md:items-end">
+              <div className="inline-flex h-11 w-fit rounded-md border border-slate-300 bg-slate-100 p-1 shadow-sm dark:border-slate-700 dark:bg-slate-950">
+                {themeOptions.map((option) => {
+                  const Icon = option.icon;
+                  const isActive = themeMode === option.value;
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-label={`${option.label}モード`}
+                      title={`${option.label}モード`}
+                      aria-pressed={isActive}
+                      onClick={() => setThemeMode(option.value)}
+                      className={`flex h-9 w-10 items-center justify-center rounded text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-500 ${
+                        isActive
+                          ? "bg-white text-cyan-700 shadow-sm dark:bg-slate-800 dark:text-cyan-300"
+                          : "text-slate-500 hover:bg-white/70 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800/70 dark:hover:text-white"
+                      }`}
+                    >
+                      <Icon aria-hidden="true" size={18} strokeWidth={2.25} />
+                    </button>
+                  );
+                })}
+              </div>
+              <label className="flex w-full max-w-xs flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                Battery CDR
+                <select
+                  value={cdr}
+                  onChange={(event) => setCdr(Number(event.target.value))}
+                  className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-cyan-400 dark:focus:ring-cyan-950"
+                >
+                  {cdrOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}A
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
-          <p className="max-w-3xl text-sm leading-6 text-slate-600">
+          <p className="max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-400">
             オームの法則で電流と出力を表示します。実運用ではバッテリーの連続放電定格、実測抵抗値、電圧降下、セル状態を別途確認してください。
           </p>
         </div>
       </section>
 
+      <section className="mx-auto grid w-full max-w-6xl gap-4 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:px-8">
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-lg font-bold text-slate-950 dark:text-white">
+              コイル抵抗値計算
+            </h2>
+            <p className="text-sm leading-6 text-slate-600 dark:text-slate-400">
+              単線ラウンドワイヤーの概算です。実測値はポスト固定、足の長さ、線材差、熱処理で変わります。
+            </p>
+          </div>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+              線材
+              <select
+                value={coilMaterial}
+                onChange={(event) => setCoilMaterial(event.target.value as WireMaterial)}
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-cyan-400 dark:focus:ring-cyan-950"
+              >
+                {wireMaterials.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+              ワイヤー
+              <select
+                value={coilAwg}
+                onChange={(event) => setCoilAwg(Number(event.target.value))}
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-cyan-400 dark:focus:ring-cyan-950"
+              >
+                {awgOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.value} AWG ({option.diameterMm}mm)
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+              内径 mm
+              <input
+                type="number"
+                min="1"
+                max="6"
+                step="0.1"
+                value={innerDiameterMm}
+                onChange={(event) => setInnerDiameterMm(Number(event.target.value))}
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-cyan-400 dark:focus:ring-cyan-950"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+              巻き数
+              <input
+                type="number"
+                min="1"
+                max="20"
+                step="0.5"
+                value={wraps}
+                onChange={(event) => setWraps(Number(event.target.value))}
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-cyan-400 dark:focus:ring-cyan-950"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+              片足の長さ mm
+              <input
+                type="number"
+                min="0"
+                max="30"
+                step="0.5"
+                value={legLengthMm}
+                onChange={(event) => setLegLengthMm(Number(event.target.value))}
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-cyan-400 dark:focus:ring-cyan-950"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+              コイル数
+              <select
+                value={coilCount}
+                onChange={(event) => setCoilCount(Number(event.target.value))}
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-cyan-400 dark:focus:ring-cyan-950"
+              >
+                <option value={1}>Single</option>
+                <option value={2}>Dual</option>
+                <option value={3}>Triple</option>
+                <option value={4}>Quad</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <aside className="rounded-lg border border-cyan-200 bg-cyan-50 p-4 shadow-sm dark:border-cyan-900 dark:bg-cyan-950/30 sm:p-5">
+          <p className="text-sm font-semibold text-cyan-800 dark:text-cyan-200">推定抵抗値</p>
+          <div className="mt-3 text-4xl font-bold tracking-normal text-slate-950 dark:text-white">
+            {coilResult.buildResistance.toFixed(2)}Ω
+          </div>
+          <dl className="mt-5 grid gap-3 text-sm">
+            <div>
+              <dt className="text-slate-600 dark:text-slate-400">1コイルあたり</dt>
+              <dd className="font-semibold text-slate-900 dark:text-slate-100">
+                {coilResult.singleCoilResistance.toFixed(2)}Ω
+              </dd>
+            </div>
+            <div>
+              <dt className="text-slate-600 dark:text-slate-400">ワイヤー長</dt>
+              <dd className="font-semibold text-slate-900 dark:text-slate-100">
+                約 {coilResult.totalLengthMm.toFixed(1)}mm / coil
+              </dd>
+            </div>
+          </dl>
+        </aside>
+      </section>
+
       <section className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-        <div className="hidden overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm md:block">
+        <div className="hidden overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 md:block">
           <table className="w-full min-w-[760px] border-collapse text-sm">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-100 text-left">
-                <th className="w-28 px-4 py-3 font-semibold text-slate-700">抵抗値</th>
+              <tr className="border-b border-slate-200 bg-slate-100 text-left dark:border-slate-800 dark:bg-slate-800">
+                <th className="w-28 px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">
+                  抵抗値
+                </th>
                 {voltageValues.map((voltage) => (
-                  <th key={voltage} className="px-4 py-3 font-semibold text-slate-700">
+                  <th
+                    key={voltage}
+                    className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300"
+                  >
                     {formatNumber(voltage)}V
                   </th>
                 ))}
@@ -88,8 +333,11 @@ export default function App() {
             </thead>
             <tbody>
               {table.map((row) => (
-                <tr key={row.resistance} className="border-b border-slate-100 last:border-0">
-                  <th className="px-4 py-3 text-left font-semibold text-slate-900">
+                <tr
+                  key={row.resistance}
+                  className="border-b border-slate-100 last:border-0 dark:border-slate-800"
+                >
+                  <th className="px-4 py-3 text-left font-semibold text-slate-900 dark:text-slate-100">
                     {row.resistance.toFixed(2)}Ω
                   </th>
                   {row.cells.map((cell, index) => (
@@ -97,8 +345,8 @@ export default function App() {
                       key={voltageValues[index]}
                       className={`px-4 py-3 ${
                         cell.isOverLimit
-                          ? "bg-rose-50 text-rose-800"
-                          : "bg-white text-slate-700"
+                          ? "bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-200"
+                          : "bg-white text-slate-700 dark:bg-slate-900 dark:text-slate-300"
                       }`}
                     >
                       <div className="font-semibold">{formatNumber(cell.amps)}A</div>
@@ -115,20 +363,24 @@ export default function App() {
           {table.map((row) => (
             <article
               key={row.resistance}
-              className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+              className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
             >
-              <h2 className="text-lg font-bold text-slate-950">{row.resistance.toFixed(2)}Ω</h2>
+              <h2 className="text-lg font-bold text-slate-950 dark:text-white">
+                {row.resistance.toFixed(2)}Ω
+              </h2>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 {row.cells.map((cell, index) => (
                   <div
                     key={voltageValues[index]}
                     className={`rounded-md border p-3 ${
                       cell.isOverLimit
-                        ? "border-rose-200 bg-rose-50 text-rose-800"
-                        : "border-slate-200 bg-slate-50 text-slate-800"
+                        ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200"
+                        : "border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
                     }`}
                   >
-                    <div className="text-xs font-semibold">{formatNumber(voltageValues[index])}V</div>
+                    <div className="text-xs font-semibold">
+                      {formatNumber(voltageValues[index])}V
+                    </div>
                     <div className="mt-1 text-base font-bold">{formatNumber(cell.amps)}A</div>
                     <div className="text-xs">{formatNumber(cell.watts)}W</div>
                   </div>
